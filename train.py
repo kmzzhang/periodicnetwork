@@ -37,10 +37,8 @@ parser.add_argument('--dropout', type=float, default=0,
                     help='dropout rate')
 parser.add_argument('--clip', type=float, default=-1,
                     help='gradient clipping')
-parser.add_argument('--survey', type=str, default='macho',
-                    help='dataset name; dataset file at ./survey/filename')
-parser.add_argument('--filename', type=str, default='raw.pkl',
-                    help='filename: raw.pkl / cleaned.pkl; ./survey/filename')
+parser.add_argument('--filename', type=str, default='test.pkl',
+                    help='filename as: /data/[filename]')
 parser.add_argument('--path', type=str, default='temp',
                     help='folder name to save experiement results')
 parser.add_argument('--max_epoch', type=int, default=50,
@@ -105,7 +103,7 @@ if args.cudnn_deterministic:
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 if args.network == 'resnet' or args.network == 'iresnet':
-    save_name = '{}-{}-K{}-D{}-NL{}-H{}-MH{}-L{}-V{}-{}-LR{}-CLIP{}-DROP{}-TP{}'.format(args.survey,
+    save_name = '{}-{}-K{}-D{}-NL{}-H{}-MH{}-L{}-V{}-{}-LR{}-CLIP{}-DROP{}-TP{}'.format(args.filename[:-4],
                                                                               args.network,
                                                                               args.kernel,
                                                                               args.depth,
@@ -120,7 +118,7 @@ if args.network == 'resnet' or args.network == 'iresnet':
                                                                               args.dropout,
                                                                               int(args.two_phase))
 else:
-    save_name = '{}-{}-K{}-D{}-H{}-L{}-V{}-{}-LR{}-CLIP{}-DROP{}-TP{}'.format(args.survey,
+    save_name = '{}-{}-K{}-D{}-H{}-L{}-V{}-{}-LR{}-CLIP{}-DROP{}-TP{}'.format(args.filename[:-4],
                                                                               args.network,
                                                                               args.kernel,
                                                                               args.depth,
@@ -136,14 +134,13 @@ print(save_name)
 lengths = np.linspace(args.l_min, args.l_max, args.n_test).astype(np.int)
 if args.L not in lengths:
     lengths = np.sort(np.append(lengths, args.L))
-survey = args.survey
-data = joblib.load('data/{}/{}'.format(survey, args.filename))
+data = joblib.load('data/{}'.format(args.filename))
 data = [lc for lc in data if lc.label is not None]
 if not args.ssoff:
     data = [lc for lc in data if lc.ss_resid <= 0.9]
     print('super smooth threshold = 0.9')
 
-if args.survey == 'macho':
+if 'macho' in args.filename:
     for lc in data:
         if 'LPV' in lc.label:
             lc.label = "LPV"
