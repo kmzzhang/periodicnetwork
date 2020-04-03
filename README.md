@@ -17,7 +17,9 @@ Neural network implementations can be found under ./model/
 
 
 The variable star light curve datasets used in this study have been uploaded to zenodo, and can be downloaded using the
-script in ./data/download.sh
+script in ./data/download.sh. These datasets have been constructed from publicly available databases. 
+If you use this dataset, please cite the original papers, the citation of which can be found in 
+https://zenodo.org/deposit/3739198
 
 Example usage
 ```
