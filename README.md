@@ -1,7 +1,5 @@
-## Improved classification of periodic variable stars with phase-invariant neural networks
-
 Code associated with the paper:
-  > [Improved classification of periodic variable stars with phase-invariant neural networks]\
+  > Improved classification of periodic variable stars with phase-invariant neural networks\
   > Keming Zhang & Joshua Bloom\
   > currently under review
 
