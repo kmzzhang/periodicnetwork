@@ -7,6 +7,32 @@ rnns = {'LSTM': nn.LSTM,
 class Classifier(nn.Module):
     def __init__(self, num_inputs, hidden_rnn, num_layers, num_class, hidden, dropout_rnn=0.15, dropout=0,
                  bidirectional=False, rnn='GRU', aux=0):
+        """
+        RNN classifier
+
+        Parameters
+        ----------
+        num_inputs: int
+            dimension of input seqeunce
+        hidden_rnn: int
+            hidden dimension of RNN
+        num_layers: int
+            number of RNN layers
+        num_class: int
+            number of classes
+        hidden: int
+            hidden dimension of the two-layer MLP classifier
+        dropout_rnn: float
+            RNN dropout rate
+        dropout: float
+            MLP dropout rate
+        bidirectional: bool
+            Bidirectional RNN
+        rnn: str
+            "GRU" or "LSTM"
+        aux: int
+            Number of auxiliary inputs
+        """
         super(type(self), self).__init__()
         self.aux = aux
         network = rnns[rnn]

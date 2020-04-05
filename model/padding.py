@@ -4,6 +4,17 @@ import torch
 
 class wrap(nn.Module):
     def __init__(self, wrap_length, mode='cyclic'):
+        """
+        Custom padding module
+
+        Parameters
+        ----------
+        wrap_length: int
+            length of padding
+        mode: str
+            "cyclic": symmetry padding for invariance
+            "zero": zero padding for ordinary Cartesian network
+        """
         super(type(self), self).__init__()
         self.wrap_length = wrap_length
         self.mode = mode

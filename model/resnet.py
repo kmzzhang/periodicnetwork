@@ -6,6 +6,21 @@ from model.padding import wrap
 
 class MyMaxPool1d(nn.Module):
     def __init__(self, window, stride=1, min_length=-1, padding='zero'):
+        """
+        Custom MaxPool module to accomodate cyclic-permutation invariance and minimum seqeunce length requirements
+
+        Parameters
+        ----------
+        window: int
+            MaxPool window size
+        stride: int
+            MaxPool stride
+        min_length: int
+            Minimum sequence length for which MaxPool is applied
+        padding: str
+            "cyclic": symmetry padding for invariance
+            "zero": zero padding for ordinary Cartesian network
+        """
         super(type(self), self).__init__()
         self.window = window
         self.maxpool = nn.MaxPool1d(window, stride=stride)
@@ -24,8 +39,40 @@ class MyMaxPool1d(nn.Module):
 
 class Classifier(nn.Module):
     def __init__(self, num_inputs, num_class, depth=9, nlayer=2, kernel_size=3, hidden_conv=32, max_hidden=256,
-                 padding='zero', aux=0, dropout=0, dropout_classifier=0, hidden=32, min_length=-1):
+                 aux=0, dropout=0, dropout_classifier=0, hidden=32, min_length=-1,padding='zero'):
+        """
+        Cyclic-permutation invariant 1D ResNet Classifier
 
+        Parameters
+        ----------
+        num_inputs: int
+            dimension of input seqeunce
+        num_class: int
+            number of classes
+        depth: int
+            number of residual modules used in the resnet
+        nlayer: int
+            number of convolutions in one residual module
+        kernel_size: int
+            kernel size
+        hidden_conv: int
+            hidden dimension for the first residual block, which doubles for each additional block
+        max_hidden: int
+            maximum hidden dimension for each residual block
+        aux: int
+            number of auxiliary inputs
+        dropout: float
+            dropout rate
+        dropout_classifier: float
+            dropout rate for the final MLP classifier
+        hidden: int
+            hidden dimension of the final two layer MLP classifier
+        min_length: int
+            minimum length for which maxpooling is applied (see docs for MyMaxPool1d)
+        padding: str
+            "cyclic": symmetry padding for invariance
+            "zero": zero padding for ordinary Cartesian network
+        """
         super(type(self), self).__init__()
         network = list()
         network.append(ResBlock(num_inputs, hidden_conv, kernel_size, dropout, padding))

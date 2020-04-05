@@ -75,7 +75,7 @@ def train(model, optimizer, train_loader, val_loader, n_epoch, eval_after=1e5, p
         val_accuracy = []
         train_losses = []
         val_losses = []
-
+    print('------------begin training---------------')
     for epoch in tqdm(range(n_epoch), disable=not use_tqdm):
         train_loss = []; predictions = []; ground_truths = []
         if epoch < eval_after:

@@ -44,7 +44,7 @@ parser.add_argument('--path', type=str, default='temp',
 parser.add_argument('--max_epoch', type=int, default=50,
                     help='maximum number of training epochs')
 parser.add_argument('--ngpu', type=int, default=1,
-                    help='number of gpus available')
+                    help='number of gpu devices to use. neg number refer to particular single device number')
 parser.add_argument('--njob', type=int, default=1,
                     help='maximum number of networks to train on each gpu')
 parser.add_argument('--K', type=int, default=8,
@@ -130,6 +130,7 @@ else:
                                                                               args.clip,
                                                                               args.dropout,
                                                                               int(args.two_phase))
+print('save filename:')
 print(save_name)
 lengths = np.linspace(args.l_min, args.l_max, args.n_test).astype(np.int)
 if args.L not in lengths:
@@ -138,7 +139,7 @@ data = joblib.load('data/{}'.format(args.filename))
 data = [lc for lc in data if lc.label is not None]
 if not args.ssoff:
     data = [lc for lc in data if lc.ss_resid <= 0.9]
-    print('super smooth threshold = 0.9')
+    print('super smoother threshold = 0.9 applied')
 
 if 'macho' in args.filename:
     for lc in data:
@@ -160,6 +161,7 @@ for cls in use_label:
 data = new_data
 all_label_string = [lc.label for lc in data]
 unique_label, count = np.unique(all_label_string, return_counts=True)
+print('------------before segmenting into L={}------------'.format(args.L))
 print(unique_label)
 print(count)
 convert_label = dict(zip(use_label, np.arange(len(use_label))))
@@ -234,7 +236,7 @@ def train_helper(param):
     label = np.array([convert_label[chunk.label] for chunk in split])
 
     x, means, scales = getattr(PreProcessor, args.input)(np.array(X_list), periods)
-    print(x.shape)
+    print('shape of the training dataset array:', x.shape)
     mean_x = x.reshape(-1, n_inputs).mean(axis=0)
     std_x = x.reshape(-1, n_inputs).std(axis=0)
     x -= mean_x
@@ -278,7 +280,6 @@ def train_helper(param):
         if args.retrain:
             mdl.load_state_dict(torch.load(name + '.pth'))
             args.lr *= 0.01
-            print(args.lr)
         optimizer = optim.Adam(mdl.parameters(), lr=args.lr)
         train(mdl, optimizer, train_loader, val_loader, args.max_epoch,
               print_every=args.print_every, save=True, filename=name+args.note, patience=args.patience,
@@ -344,7 +345,6 @@ def train_helper(param):
 
 if __name__ == '__main__':
     jobs = []
-    LightCurve = LightCurve
     np.random.seed(args.seed)
     for i in range(args.K):
         if args.K == 1:
@@ -365,7 +365,6 @@ if __name__ == '__main__':
         with ctx.Pool(args.ngpu * args.njob) as p:
             results = p.map(train_helper, jobs)
     results = np.array(results)
-    print(results.shape)
     results_all = np.c_[lengths, results[:, 0, :].T]
     results_class = np.c_[lengths, results[:, 1, :].T]
     np.save('{}/{}{}-results.npy'.format(args.path, save_name, args.note), results_all)

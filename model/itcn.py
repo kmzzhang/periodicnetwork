@@ -7,7 +7,32 @@ from model.padding import wrap
 class Classifier(nn.Module):
     def __init__(self, num_inputs, num_channels, num_class, hidden, dropout=0, kernel_size=2,
                  dropout_classifier=0, aux=0, padding='cyclic'):
+        """
+        Cyclic-permutation invariant Temporal Convolutional Network Classifier
 
+        Parameters
+        ----------
+        num_inputs: int
+            dimension of input seqeunce
+        num_channels: list
+            list of hidden dimensions for each layer.
+            len must be equal to hidden
+        num_class: int
+            number of classes
+        hidden: int
+            hidden dimension of the final two layer MLP classifier
+        dropout: float
+            dropout rate
+        kernel_size: int
+            kernel size
+        dropout_classifier: float
+            dropout rate for the final MLP classifier
+        aux: int
+            number of auxiliary inputs
+        padding: str
+            "cyclic": symmetry padding for invariance
+            "zero": zero padding for ordinary Cartesian network
+        """
         super(type(self), self).__init__()
         self.aux = aux
         self.TCN = CyclicTemporalConvNet(num_inputs, num_channels, kernel_size, dropout, padding=padding)
