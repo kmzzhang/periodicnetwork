@@ -1,0 +1,8 @@
+python==3.6.5
+torch==1.0.1
+torchvision==0.2.1
+wandb
+joblib
+argparse
+tqdm
+numpy
