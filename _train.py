@@ -2,10 +2,10 @@ import numpy as np
 import torch
 from torch import from_numpy
 import torch.nn as nn
-from torch.optim.lr_scheduler import ReduceLROnPlateau, MultiStepLR
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm import tqdm_notebook
 from tqdm import tqdm as tqdm_
-
+import wandb
 
 if torch.cuda.is_available():
     dtype = torch.cuda.FloatTensor
@@ -43,9 +43,10 @@ def permute(x):
     return x
 
 
-def train(model, optimizer, train_loader, val_loader, n_epoch, eval_after=1e5, patience=10, min_lr=0.00001,
+def train(model, optimizer, train_loader, val_loader, test_loader, n_epoch, eval_after=1e5, patience=10, min_lr=0.00001,
           filename='model', save=False, monitor='accuracy', print_every=-1, early_stopping_limit=1e5,
-          threshold=0.1, use_tqdm=True, jupyter=False, scales_all=None, clip=-1, retrain=False):
+          threshold=0.1, use_tqdm=False, jupyter=False, scales_all=None, clip=-1, retrain=False, decay_type='plateau',
+          log=False, perm=True):
     if jupyter:
         tqdm = tqdm_notebook
     else:
@@ -55,16 +56,17 @@ def train(model, optimizer, train_loader, val_loader, n_epoch, eval_after=1e5, p
         mean_x, std_x, aux_mean, aux_std = from_numpy(scales_all).float()
         mean_x = mean_x[:-1]
         std_x = std_x[:-1]
-    assert patience < early_stopping_limit
     softmax = torch.nn.Softmax(dim=1)
     loss_fn = nn.CrossEntropyLoss()
     min_val_loss = 1e9
     max_accuracy = 0
     max_accuracy_class = 0
     early_stopping_counter = 0
-    lr_scheduler = ReduceLROnPlateau(optimizer, factor=0.2, patience=patience,
-                                     cooldown=0, verbose=True, threshold=threshold, min_lr=min_lr)
-    #lr_scheduler = MultiStepLR(optimizer, [15,25], gamma=0.1)
+    if decay_type == 'plateau':
+        lr_scheduler = ReduceLROnPlateau(optimizer, factor=0.1, patience=patience,
+                                         cooldown=0, verbose=True, threshold=threshold)
+    elif decay_type == 'exp':
+        lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, 0.85)
     if retrain:
         val_accuracy = list(np.load(filename + '-CONVERGENCE-val.npy'))
         train_accuracy = np.load(filename + '-CONVERGENCE-train.npy')
@@ -76,13 +78,14 @@ def train(model, optimizer, train_loader, val_loader, n_epoch, eval_after=1e5, p
         train_losses = []
         val_losses = []
     print('------------begin training---------------')
+
     for epoch in tqdm(range(n_epoch), disable=not use_tqdm):
         train_loss = []; predictions = []; ground_truths = []
         if epoch < eval_after:
             model.train()
         else:
             model.eval()
-        for i, d in enumerate(train_loader):
+        for i, d in tqdm(enumerate(train_loader), disable=not use_tqdm):
             x, aux, y = d
             if scales_all is not None:
                 L = np.random.randint(16, x.shape[2])
@@ -93,7 +96,8 @@ def train(model, optimizer, train_loader, val_loader, n_epoch, eval_after=1e5, p
                 x /= std_x[None, :,None]
                 aux[:, 0] = (means - aux_mean[0]) / aux_std[0]
                 aux[:, 1] = (scales - aux_mean[1]) / aux_std[1]
-            x = permute(x)
+            if perm:
+                x = permute(x)
             logprob = model(x.type(dtype), aux.type(dtype))
             loss = loss_fn(logprob, y.type(dint))
             optimizer.zero_grad()
@@ -104,7 +108,6 @@ def train(model, optimizer, train_loader, val_loader, n_epoch, eval_after=1e5, p
             train_loss.append(loss.detach().cpu())
             predictions.extend(list(np.argmax(softmax(logprob).detach().cpu(), axis=1)))
             ground_truths.extend(list(y.numpy()))
-
         train_loss = np.array(train_loss).mean()
         train_losses.append(train_loss)
         predictions = np.array(predictions)
@@ -128,7 +131,8 @@ def train(model, optimizer, train_loader, val_loader, n_epoch, eval_after=1e5, p
                     aux[:, 1] = (scales - aux_mean[1]) / aux_std[1]
                 # allow random cyclic permutation on the fly
                 # as data augmentation for the non-invariant networks
-                x = permute(x)
+                if perm:
+                    x = permute(x)
                 logprob = model(x.type(dtype), aux.type(dtype))
                 loss = loss_fn(logprob, y.type(dint))
                 val_loss.extend([loss.detach().cpu()]*x.shape[0])
@@ -148,8 +152,15 @@ def train(model, optimizer, train_loader, val_loader, n_epoch, eval_after=1e5, p
         val_loss = np.array(val_loss).mean()
         val_losses.append(val_loss)
 
-        lr_scheduler.step(train_loss)
-        # lr_scheduler.step(epoch)
+        if decay_type == 'plateau':
+            lr_scheduler.step(train_loss)
+        else:
+            lr_scheduler.step()
+        if log:
+            wandb.log({"Train Loss": train_loss,
+                       "Val Loss": val_loss,
+                       "Train Acc": train_accuracy[-1] * 100,
+                        "Val Acc": accuracy * 100})
         if print_every != -1 and epoch % print_every == 0:
             print('epoch:%d: train_loss = %.4f, val_loss = %.4f, accuracy = %.2f' % (epoch, train_loss,
                                                                                      val_loss, accuracy * 100))
@@ -169,17 +180,15 @@ def train(model, optimizer, train_loader, val_loader, n_epoch, eval_after=1e5, p
                 if save:
                     torch.save(model.state_dict(), filename+'.pth')
                     print('Saved: epoch:%d: accuracy = %.2f' % (epoch, accuracy*100))
-        if early_stopping_counter > early_stopping_limit:
+        else:
+            torch.save(model.state_dict(), filename + '.pth')
+        if early_stopping_counter > early_stopping_limit > 0:
             print('Metric did not improve for %d rounds' % early_stopping_limit)
             print('Early stopping at epoch %d' % epoch)
-            np.save(filename + '-CONVERGENCE-val.npy', np.array(val_accuracy))
-            np.save(filename + '-CONVERGENCE-train.npy', np.array(train_accuracy))
-            np.save(filename + '-CONVERGENCE-val-loss.npy', np.array(val_losses))
-            np.save(filename + '-CONVERGENCE-train-loss.npy', np.array(train_losses))
             return train_losses, val_losses, max_accuracy, max_accuracy_class
         early_stopping_counter += 1
-    np.save(filename + '-CONVERGENCE-val.npy', np.array(val_accuracy))
-    np.save(filename + '-CONVERGENCE-train.npy', np.array(train_accuracy))
-    np.save(filename + '-CONVERGENCE-val-loss.npy', np.array(val_losses))
-    np.save(filename + '-CONVERGENCE-train-loss.npy', np.array(train_losses))
+        np.save(filename + '-CONVERGENCE-val.npy', np.array(val_accuracy))
+        np.save(filename + '-CONVERGENCE-train.npy', np.array(train_accuracy))
+        np.save(filename + '-CONVERGENCE-val-loss.npy', np.array(val_losses))
+        np.save(filename + '-CONVERGENCE-train-loss.npy', np.array(train_losses))
     return train_losses, val_losses, max_accuracy, max_accuracy_class

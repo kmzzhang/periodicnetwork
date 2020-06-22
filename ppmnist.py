@@ -4,14 +4,16 @@ import argparse
 parser = argparse.ArgumentParser(description='Periodic Permuted Sequential MNIST')
 parser.add_argument('--batch_size', type=int, default=64, metavar='N',
                     help='batch size (default: 64)')
-parser.add_argument('--cuda', action='store_false',
+parser.add_argument('--cuda', action='store_false',default=True,
                     help='use CUDA (default: True)')
+parser.add_argument('--periodic', action='store_true',default=False,
+                    help='PP-MNIST if true; P-MNIST if false.')
+parser.add_argument('--augment', action='store_true',default=False,
+                    help='use data augmentation')
 parser.add_argument('--dropout', type=float, default=0,
                     help='dropout applied to layers (default: 0.05)')
 parser.add_argument('--clip', type=float, default=-1,
                     help='gradient clip, -1 means no clip (default: -1)')
-parser.add_argument('--epochs', type=int, default=25,
-                    help='upper epoch limit (60 for tcn/tin; 25 otherwise)')
 parser.add_argument('--ksize', type=int, default=7,
                     help='kernel size (default: 7)')
 parser.add_argument('--levels', type=int, default=8,
@@ -32,8 +34,10 @@ parser.add_argument('--network', type=str, default='tcn',
                     help='network name itcn/tcn/itin/tin/iresnet/resnet/gru/lstm')
 parser.add_argument('--path', type=str, default='pmnist',
                     help='network')
+parser.add_argument('--project', type=str, default='none',
+                    help='for weights and biases tracking')
 parser.add_argument('--ngpu', type=str, default='0',
-                    help='# of gpu used to train model')
+                    help='gpu device number to use when gpu_count > 1')
 parser.add_argument('--name', type=str, default='none',
                     help='save filename')
 args = parser.parse_args()
@@ -48,8 +52,14 @@ from model.itcn import Classifier as itcn
 from model.itin import Classifier as itin
 from model.rnn import Classifier as rnn
 import numpy as np
+import wandb
+
+if 'tcn' not in args.network:
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 torch.manual_seed(args.seed)
+np.random.seed(args.seed)
 if torch.cuda.is_available():
     if not args.cuda:
         print("WARNING: You have a CUDA device, so you should probably run with --cuda")
@@ -57,11 +67,13 @@ if torch.cuda.is_available():
 root = './data/mnist'
 name = args.path + '/{}_{}_{}_{}_{}'.format(args.network, args.nhid, args.nhid_max, args.dropout, args.levels)
 print(name)
+wandb.init(project=args.project, config=args, name=name)
+
 batch_size = args.batch_size
 n_classes = 10
 input_channels = 1
 seq_length = int(784 / input_channels)
-epochs = args.epochs
+epochs = 25 if args.network in ['iresnet','resnet'] else 40
 steps = 0
 test_accuracy = []
 train_accuracy = []
@@ -79,12 +91,6 @@ if args.network == 'itcn':
 elif args.network == 'tcn':
     model = itcn(input_channels, channel_sizes, n_classes, hidden=1, kernel_size=kernel_size, dropout=args.dropout,
                  padding='zero')
-elif args.network == 'itin':
-    model = itin(input_channels, [kernel_size-2, kernel_size, kernel_size+2], channel_sizes, n_classes, hidden=1,
-                 dropout=args.dropout, padding='cyclic')
-elif args.network == 'tin':
-    model = itin(input_channels, [kernel_size - 2, kernel_size, kernel_size + 2], channel_sizes, n_classes, hidden=1,
-                 dropout=args.dropout, padding='zero')
 elif args.network == 'iresnet':
     model = resnet(input_channels, n_classes, depth=args.levels, nlayer=2, kernel_size=kernel_size,
                    hidden_conv=args.nhid, max_hidden=args.nhid_max, padding='cyclic', aux=0,
@@ -93,17 +99,11 @@ elif args.network == 'resnet':
     model = resnet(input_channels, n_classes, depth=args.levels, nlayer=2, kernel_size=kernel_size,
                    hidden_conv=args.nhid, max_hidden=args.nhid_max, padding='zero', aux=0,
                    dropout_classifier=args.dropout, hidden=32)
-elif args.network == 'gru':
-    model = rnn(num_inputs=input_channels, hidden_rnn=args.nhid, num_layers=args.levels, num_class=n_classes, hidden=32,
-                rnn='GRU', dropout=0.15)
-elif args.network == 'lstm':
-    model = rnn(num_inputs=input_channels, hidden_rnn=args.nhid, num_layers=args.levels, num_class=n_classes, hidden=32,
-                rnn='LSTM', dropout=0.15)
-
 
 if args.cuda:
     model.cuda()
     permute = permute.cuda()
+wandb.watch(model)
 
 lr = args.lr
 optimizer = getattr(optim, args.optim)(model.parameters(), lr=lr)
@@ -111,13 +111,15 @@ optimizer = getattr(optim, args.optim)(model.parameters(), lr=lr)
 
 def train(ep):
     global steps
+    train_accuracies = []
     train_loss = 0
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
+
         if args.cuda: data, target = data.cuda(), target.cuda()
         data = data.view(-1, input_channels, seq_length)
         data = data[:, :, permute]
-        if args.permute:
+        if args.periodic:
             for i in range(data.shape[0]):
                 start = np.random.randint(0, seq_length - 1)
                 data[i] = torch.cat((data[i, :, start:], data[i, :, :start]), dim=1)
@@ -129,14 +131,17 @@ def train(ep):
         if args.clip > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
         optimizer.step()
-        train_loss += loss
+        train_loss += loss.cpu().detach().numpy()
         steps += seq_length
         if batch_idx > 0 and batch_idx % args.log_interval == 0:
             train_accuracy.append(train_loss.item()/args.log_interval)
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tSteps: {}'.format(
                 ep, batch_idx * batch_size, len(train_loader.dataset),
-                100. * batch_idx / len(train_loader), train_loss.item()/args.log_interval, steps))
+                100. * batch_idx / len(train_loader), train_loss/args.log_interval, steps))
+            train_accuracies.append(train_loss/args.log_interval)
             train_loss = 0
+
+    return np.array(train_accuracies).mean()
 
 
 def test(save=False):
@@ -165,19 +170,25 @@ def test(save=False):
         print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
                 test_loss, correct, len(test_loader.dataset),
                 100. * float(correct) / len(test_loader.dataset)))
+        return test_loss
 
 
 if __name__ == "__main__":
 
-    if args.network not in ['tcn', 'tin']:
+    if args.network not in ['itcn', 'tcn']:
         every = 10
     else:
-        every = 40
+        every = 15
     epochs = int(epochs)
 
     for epoch in range(1, epochs+1):
-        train(epoch)
-        test()
+        if not args.augment:
+            np.random.seed(args.seed)
+        train_loss = train(epoch)
+        test_loss = test()
+        wandb.log({"Train Loss": train_loss,
+                   "Test Loss": test_loss,
+                   "Test Acc": test_accuracy[-1]})
         if epoch % every == 0:
             lr /= 10
             for param_group in optimizer.param_groups:

@@ -1,48 +1,44 @@
+import os
 import sys
 import joblib
 import argparse
-import multiprocessing as mp
+import torch.multiprocessing as mp
 sys.path.append('./')
 
-import torch
-import torch.optim as optim
-from torch.utils.data import DataLoader
-
-from model.resnet import Classifier as resnet
-from model.itcn import Classifier as itcn
-from model.itin import Classifier as itin
-from model.rnn import Classifier as rnn
-from data import MyDataset as MyDataset
-
-from light_curve import LightCurve
-from util import *
-from _train import train
 
 parser = argparse.ArgumentParser(description='')
 parser.add_argument('--L', type=int, default=128,
+                    help='training sequence length')
+parser.add_argument('--filename', type=str, default='test.pkl',
+                    help='dataset filename. file is expected in ./data/')
+parser.add_argument('--frac-train', type=float, default=0.8,
+                    help='training sequence length')
+parser.add_argument('--frac-valid', type=float, default=0.25,
+                    help='training sequence length')
+parser.add_argument('--train-batch', type=int, default=32,
                     help='training sequence length')
 parser.add_argument('--varlen_train', action='store_true', default=False,
                     help='enable variable length training')
 parser.add_argument('--input', type=str, default='dtf',
                     help='input representation of data. combination of t/dt/f/df/g.')
-parser.add_argument('--l_min', type=int, default=128,
-                    help='test sequence minimum length')
-parser.add_argument('--l_max', type=int, default=128,
-                    help='test sequence maximum length')
 parser.add_argument('--n_test', type=int, default=1,
                     help='number of different sequence length to test')
 parser.add_argument('--lr', type=float, default=0.005,
                     help='learning rate')
 parser.add_argument('--dropout', type=float, default=0,
                     help='dropout rate')
+parser.add_argument('--dropout-classifier', type=float, default=0,
+                    help='dropout rate')
+parser.add_argument('--permute', action='store_true', default=False,
+                    help='data augmentation')
 parser.add_argument('--clip', type=float, default=-1,
                     help='gradient clipping')
-parser.add_argument('--filename', type=str, default='test.pkl',
-                    help='filename as: /data/[filename]')
 parser.add_argument('--path', type=str, default='temp',
                     help='folder name to save experiement results')
 parser.add_argument('--max_epoch', type=int, default=50,
                     help='maximum number of training epochs')
+parser.add_argument('--min_maxpool', type=int, default=2,
+                    help='minimum length required for maxpool operation.')
 parser.add_argument('--ngpu', type=int, default=1,
                     help='number of gpu devices to use. neg number refer to particular single device number')
 parser.add_argument('--njob', type=int, default=1,
@@ -61,6 +57,8 @@ parser.add_argument('--n_layer', type=int, default=2,
                     help='(iresnet/resnet only) number of convolution per residual block')
 parser.add_argument('--hidden', type=int, default=128,
                     help='hidden dimension')
+parser.add_argument('--hidden-classifier', type=int, default=32,
+                    help='hidden dimension for final layer')
 parser.add_argument('--max_hidden', type=int, default=128,
                     help='(iresnet/resnet only) maximum hidden dimension')
 parser.add_argument('--two_phase', action='store_true', default=False,
@@ -73,35 +71,33 @@ parser.add_argument('--cudnn_deterministic', action='store_true', default=False,
                     help='')
 parser.add_argument('--min_sample', type=int, default=0,
                     help='minimum number of pre-segmented light curve per class')
-parser.add_argument('--min_sample_test', type=int, default=0,
-                    help='minimum number of pre-segmented light curve per class during testing')
-parser.add_argument('--max_sample', type=int, default=20000,
+parser.add_argument('--max_sample', type=int, default=100000,
                     help='maximum number of pre-segmented light curve per class during testing')
 parser.add_argument('--test', action='store_true', default=False,
                     help='test pre-trained model')
-parser.add_argument('--ssoff', action='store_true', default=False,
-                    help='turn off super smoother')
 parser.add_argument('--retrain', action='store_true', default=False,
+                    help='continue training from checkpoint')
+parser.add_argument('--no-log', action='store_true', default=False,
                     help='continue training from checkpoint')
 parser.add_argument('--note', type=str, default='',
                     help='')
+parser.add_argument('--project-name', type=str, default='',
+                    help='for weights and biases tracking')
+parser.add_argument('--decay-type', type=str, default='plateau',
+                    help='')
 parser.add_argument('--patience', type=int, default=5,
                     help='patience for learning decay')
-parser.add_argument('--early_stopping', type=int, default=15,
+parser.add_argument('--early_stopping', type=int, default=0,
                     help='terminate training if loss does not improve by 10% after waiting this number of epochs')
 args = parser.parse_args()
-if torch.cuda.is_available():
-    dtype = torch.cuda.FloatTensor
-    dint = torch.cuda.LongTensor
-else:
-    assert args.ngpu == 1
-    dtype = torch.FloatTensor
-    dint = torch.LongTensor
-if args.min_sample_test == -1:
-    args.min_sample_test = args.min_sample
-if args.cudnn_deterministic:
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+
+
+def get_device(path):
+    device = os.listdir(path)[0]
+    os.remove(path+'/'+device)
+    return device
+
+
 if args.network == 'resnet' or args.network == 'iresnet':
     save_name = '{}-{}-K{}-D{}-NL{}-H{}-MH{}-L{}-V{}-{}-LR{}-CLIP{}-DROP{}-TP{}'.format(args.filename[:-4],
                                                                               args.network,
@@ -114,8 +110,8 @@ if args.network == 'resnet' or args.network == 'iresnet':
                                                                               int(args.varlen_train),
                                                                               args.input,
                                                                               args.lr,
-                                                                              args.clip,
-                                                                              args.dropout,
+                                                                              args.hidden_classifier,
+                                                                              max(args.dropout, args.dropout_classifier),
                                                                               int(args.two_phase))
 else:
     save_name = '{}-{}-K{}-D{}-H{}-L{}-V{}-{}-LR{}-CLIP{}-DROP{}-TP{}'.format(args.filename[:-4],
@@ -130,44 +126,51 @@ else:
                                                                               args.clip,
                                                                               args.dropout,
                                                                               int(args.two_phase))
-print('save filename:')
-print(save_name)
-lengths = np.linspace(args.l_min, args.l_max, args.n_test).astype(np.int)
-if args.L not in lengths:
-    lengths = np.sort(np.append(lengths, args.L))
+from torch.multiprocessing import current_process
+if current_process().name != 'MainProcess':
+    if args.njob > 1 or args.ngpu > 1:
+        path = 'device'+save_name+args.note
+        device = get_device(path)
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(device[0])
+else:
+    print('save filename:')
+    print(save_name)
+import torch
+import torch.optim as optim
+from torch.utils.data import DataLoader
+
+from model.resnet import Classifier as resnet
+from model.itcn import Classifier as itcn
+from model.itin import Classifier as itin
+from model.rnn import Classifier as rnn
+from data import MyDataset as MyDataset
+
+from light_curve import LightCurve
+from util import *
+from _train import train
+
+if torch.cuda.is_available():
+    dtype = torch.cuda.FloatTensor
+    dint = torch.cuda.LongTensor
+    map_loc = 'cuda:0'
+else:
+    assert args.ngpu == 1
+    dtype = torch.FloatTensor
+    dint = torch.LongTensor
+    map_loc = 'cpu'
+
+if args.cudnn_deterministic:
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+if 'asassn' in args.filename:
+    args.max_sample = 20000
+if args.n_test == 1:
+    lengths = [args.L]
+else:
+    lengths = np.linspace(16, args.L * 2, args.n_test).astype(np.int)
+    if args.L not in lengths:
+        lengths = np.sort(np.append(lengths, args.L))
 data = joblib.load('data/{}'.format(args.filename))
-data = [lc for lc in data if lc.label is not None]
-if not args.ssoff:
-    data = [lc for lc in data if lc.ss_resid <= 0.9]
-    print('super smoother threshold = 0.9 applied')
-
-if 'macho' in args.filename:
-    for lc in data:
-        if 'LPV' in lc.label:
-            lc.label = "LPV"
-
-# Generate a list all labels for train/test split
-all_label_string = [lc.label for lc in data]
-unique_label, count = np.unique(all_label_string, return_counts=True)
-use_label = unique_label[count >= args.min_sample]
-test_label = unique_label[count >= args.min_sample_test]
-
-n_classes = len(use_label)
-data = [lc for lc in data if lc.label in use_label]
-new_data = []
-for cls in use_label:
-    class_data = [lc for lc in data if lc.label == cls]
-    new_data.extend(class_data[:min(len(class_data), args.max_sample)])
-data = new_data
-all_label_string = [lc.label for lc in data]
-unique_label, count = np.unique(all_label_string, return_counts=True)
-print('------------before segmenting into L={}------------'.format(args.L))
-print(unique_label)
-print(count)
-convert_label = dict(zip(use_label, np.arange(len(use_label))))
-all_labels = np.array([convert_label[lc.label] for lc in data])
-test_label = np.array([convert_label[label] for label in test_label])
-
 # sanity check on dataset
 for lc in data:
     positive = lc.errors > 0
@@ -176,8 +179,31 @@ for lc in data:
     lc.measurements = lc.measurements[positive]
     lc.errors = lc.errors[positive]
 
+if 'macho' in args.filename:
+    for lc in data:
+        if 'LPV' in lc.label:
+            lc.label = "LPV"
 
-if args.input in ['dtdfg', 'dtfg']:
+# Generate a list all labels for train/test split
+unique_label, count = np.unique([lc.label for lc in data], return_counts=True)
+use_label = unique_label[count >= args.min_sample]
+
+n_classes = len(use_label)
+new_data = []
+for cls in use_label:
+    class_data = [lc for lc in data if lc.label == cls]
+    new_data.extend(class_data[:min(len(class_data), args.max_sample)])
+data = new_data
+
+all_label_string = [lc.label for lc in data]
+unique_label, count = np.unique(all_label_string, return_counts=True)
+print('------------before segmenting into L={}------------'.format(args.L))
+print(unique_label)
+print(count)
+convert_label = dict(zip(use_label, np.arange(len(use_label))))
+all_labels = np.array([convert_label[lc.label] for lc in data])
+
+if args.input in ['dtdfg', 'dtfg', 'dtfe']:
     n_inputs = 3
 elif args.input in ['df', 'f', 'g']:
     n_inputs = 1
@@ -204,11 +230,11 @@ def get_network(n_classes):
                    dropout=args.dropout, dropout_classifier=0, aux=3, padding='zero').type(dtype)
     elif args.network == 'iresnet':
         clf = resnet(n_inputs, n_classes, depth=args.depth, nlayer=args.n_layer, kernel_size=args.kernel,
-                     hidden_conv=args.hidden, max_hidden=args.max_hidden, padding='cyclic',
-                     aux=3, dropout_classifier=0, hidden=32).type(dtype)
+                     hidden_conv=args.hidden, max_hidden=args.max_hidden, padding='cyclic',min_length=args.min_maxpool,
+                     aux=3, dropout_classifier=args.dropout_classifier, hidden=args.hidden_classifier).type(dtype)
     elif args.network == 'resnet':
         clf = resnet(n_inputs, n_classes, depth=args.depth, nlayer=args.n_layer, kernel_size=args.kernel,
-                     hidden_conv=args.hidden, max_hidden=args.max_hidden, padding='zero',
+                     hidden_conv=args.hidden, max_hidden=args.max_hidden, padding='zero',min_length=args.min_maxpool,
                      aux=3, dropout_classifier=0, hidden=32).type(dtype)
     elif args.network == 'gru':
         clf = rnn(num_inputs=n_inputs, hidden_rnn=args.hidden, num_layers=args.depth, num_class=n_classes, hidden=32,
@@ -220,12 +246,12 @@ def get_network(n_classes):
 
 
 def train_helper(param):
+    global map_loc
     train_index, test_index, name = param
     split = [chunk for i in train_index for chunk in data[i].split(args.L, args.L) if data[i].label is not None]
     for lc in split:
         lc.period_fold()
-    all_label_string = [lc.label for lc in split]
-    unique_label, count = np.unique(all_label_string, return_counts=True)
+    unique_label, count = np.unique([lc.label for lc in split], return_counts=True)
     print('------------after segmenting into L={}------------'.format(args.L))
     print(unique_label)
     print(count)
@@ -259,35 +285,66 @@ def train_helper(param):
     else:
         np.save(name + '_scales.npy', scales_all)
 
-    train_idx, val_idx = train_test_split(label, 0.75, -1)
-    if args.ngpu > 1:
-        path = 'device'+save_name
-        device = get_device(path)
-        torch.cuda.set_device(int(device[0]))
-    else:
-        if args.ngpu < 0:
-            torch.cuda.set_device(int(-1*args.ngpu))
-    #print('Using ', torch.cuda.current_device())
+    train_idx, val_idx = train_test_split(label, 1 - args.frac_valid, -1)
+    if args.ngpu < 0:
+        torch.cuda.set_device(int(-1*args.ngpu))
+        map_loc = 'cuda:{}'.format(int(-1*args.ngpu))
+
+    print('Using ', torch.cuda.current_device())
     torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    sys.stdout = sys.__stdout__
     train_dset = MyDataset(x[train_idx], aux[train_idx], label[train_idx])
     val_dset = MyDataset(x[val_idx], aux[val_idx], label[val_idx])
-    train_loader = DataLoader(train_dset, batch_size=32, shuffle=True, drop_last=True, pin_memory=True)
-    val_loader = DataLoader(val_dset, batch_size=512, shuffle=False, drop_last=False, pin_memory=True)
+    train_loader = DataLoader(train_dset, batch_size=args.train_batch, shuffle=True, drop_last=True)
+    val_loader = DataLoader(val_dset, batch_size=128, shuffle=False, drop_last=False)
+
+    split = [chunk for i in test_index for chunk in data[i].split(args.L, args.L)]
+    for lc in split:
+        lc.period_fold()
+
+    # shape: (N, L, 3)
+    x_list = [np.c_[chunk.times, chunk.measurements, chunk.errors] for chunk in split]
+    periods = np.array([lc.p for lc in split])
+    x, means, scales = getattr(PreProcessor, args.input)(np.array(x_list), periods)
+
+    # whiten data
+    x -= mean_x
+    x /= std_x
+    if args.varlen_train:
+        x = np.array(X_list)
+    if args.two_phase:
+        x = np.concatenate([x, x], axis=1)
+    x = np.swapaxes(x, 2, 1)
+    # shape: (N, 3, L)
+
+    label = np.array([convert_label[chunk.label] for chunk in split])
+    aux = np.c_[means, scales, np.log10(periods)]
+    aux -= aux_mean
+    aux /= aux_std
+
+    test_dset = MyDataset(x, aux, label)
+    test_loader = DataLoader(test_dset, batch_size=128, shuffle=False, drop_last=False, pin_memory=True)
 
     mdl = get_network(n_classes)
-
+    if not args.no_log:
+        import wandb
+        wandb.init(project=args.project_name, config=args, name=name)
+        wandb.watch(mdl)
     if not args.test:
         if args.retrain:
-            mdl.load_state_dict(torch.load(name + '.pth'))
+            mdl.load_state_dict(torch.load(name + '.pth', map_location=map_loc))
             args.lr *= 0.01
         optimizer = optim.Adam(mdl.parameters(), lr=args.lr)
-        train(mdl, optimizer, train_loader, val_loader, args.max_epoch,
+        torch.manual_seed(args.seed)
+        train(mdl, optimizer, train_loader, val_loader, test_loader, args.max_epoch,
               print_every=args.print_every, save=True, filename=name+args.note, patience=args.patience,
-              early_stopping_limit=args.early_stopping, use_tqdm=False, scales_all=scales_all, clip=args.clip,
-              retrain=args.retrain)
+              early_stopping_limit=args.early_stopping, use_tqdm=True, scales_all=scales_all, clip=args.clip,
+              retrain=args.retrain, decay_type=args.decay_type, monitor='accuracy', log=not args.no_log,
+              perm=args.permute)
 
     # load the model with the best validation accuracy for testing on the test set
-    mdl.load_state_dict(torch.load(name + '.pth'))
+    mdl.load_state_dict(torch.load(name + args.note + '.pth', map_location=map_loc))
 
     # Evaluate model on sequences of different length
     accuracy_length = np.zeros(len(lengths))
@@ -296,6 +353,9 @@ def train_helper(param):
     with torch.no_grad():
         for j, length in enumerate(lengths):
             split = [chunk for i in test_index for chunk in data[i].split(length, length)]
+            # num_chunks = np.array([len(data[i].split(length, length)) for i in test_index])
+            # num_chunks = num_chunks[num_chunks != 0]
+            # assert np.sum(num_chunks) == len(split)
             for lc in split:
                 lc.period_fold()
 
@@ -318,52 +378,62 @@ def train_helper(param):
             aux /= aux_std
 
             test_dset = MyDataset(x, aux, label)
-            if length > 200:
-                batch_size = 32
-            else:
-                batch_size = 256
-            test_loader = DataLoader(test_dset, batch_size=batch_size, shuffle=False, drop_last=False, pin_memory=True)
+            test_loader = DataLoader(test_dset, batch_size=128, shuffle=False, drop_last=False, pin_memory=True)
             softmax = torch.nn.Softmax(dim=1)
             predictions = []
             ground_truths = []
+            probs = []
             for i, d in enumerate(test_loader):
                 x, aux_, y = d
                 logprob = mdl(x.type(dtype), aux_.type(dtype))
                 predictions.extend(list(np.argmax(softmax(logprob).detach().cpu(), axis=1)))
+                probs.extend(list(softmax(logprob).detach().cpu().numpy()))
                 ground_truths.extend(list(y.numpy()))
 
             predictions = np.array(predictions)
             ground_truths = np.array(ground_truths)
+            # pred_perobj = [np.argmax(np.log(probs[sum(num_chunks[:i]):sum(num_chunks[:i + 1])]).sum(axis=0))
+            #                for i in range(len(num_chunks))]
+            # gt_perobj = [ground_truths[sum(num_chunks[:i])] for i in range(len(num_chunks))]
+            #
+
+            # if len(lengths) == 1:
+            #     np.save('{}_predictions.npy'.format(name), np.c_[predictions, ground_truths])
+            #     np.save('{}_predictions_perobj.npy'.format(name), np.c_[pred_perobj, gt_perobj])
+            #     np.save('{}_labels.npy'.format(name), use_label)
+
             accuracy_length[j] = (predictions == ground_truths).mean()
             accuracy_class_length[j] = np.array(
-                [(predictions[ground_truths == l] == ground_truths[ground_truths == l]).mean() for l in
-                 np.unique(ground_truths) if l in test_label]).mean()
+                [(predictions[ground_truths == l] == ground_truths[ground_truths == l]).mean()
+                 for l in np.unique(ground_truths)]).mean()
     if args.ngpu > 1:
         return_device(path, device)
     return accuracy_length, accuracy_class_length
 
 
 if __name__ == '__main__':
+
     jobs = []
     np.random.seed(args.seed)
     for i in range(args.K):
         if args.K == 1:
             i = args.pseed
-        trains, tests = train_test_split(all_labels, train_size=0.8, random_state=i)
+        trains, tests = train_test_split(all_labels, train_size=args.frac_train, random_state=i)
         jobs.append((trains, tests, '{}/{}-{}'.format(args.path, save_name, i)))
     try:
         os.mkdir(args.path)
     except:
         pass
-    if args.ngpu <= 1:
+    if args.ngpu <= 1 and args.njob == 1:
         results = []
         for j in jobs:
             results.append(train_helper(j))
     else:
-        create_device('device'+save_name, args.ngpu, args.njob)
+        create_device('device'+save_name+args.note, args.ngpu, args.njob)
         ctx = mp.get_context('spawn')
         with ctx.Pool(args.ngpu * args.njob) as p:
             results = p.map(train_helper, jobs)
+        shutil.rmtree('device' + save_name+args.note)
     results = np.array(results)
     results_all = np.c_[lengths, results[:, 0, :].T]
     results_class = np.c_[lengths, results[:, 1, :].T]

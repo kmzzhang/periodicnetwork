@@ -169,12 +169,6 @@ def create_device(path, ngpu=1, njob=1, ID=None):
     except:
         pass
     os.mkdir(path)
-    if ngpu == 1:
-        if ID is None:
-            ID = 0
-        with open(path + '/%d_%d' % (ID, 0), 'a'):
-            os.utime(path + '/%d_%d' % (ID, 0), None)
-        return None
     for i in range(ngpu):
         for j in range(njob):
             with open(path+'/%d_%d'%(i,j), 'a'):
