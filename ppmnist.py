@@ -32,7 +32,7 @@ parser.add_argument('--seed', type=int, default=1111,
                     help='random seed (default: 1111)')
 parser.add_argument('--network', type=str, default='tcn',
                     help='network name itcn/tcn/itin/tin/iresnet/resnet/gru/lstm')
-parser.add_argument('--path', type=str, default='pmnist',
+parser.add_argument('--path', type=str, default='results',
                     help='network')
 parser.add_argument('--project', type=str, default='none',
                     help='for weights and biases tracking')
