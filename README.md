@@ -1,5 +1,5 @@
 Code associated with the paper:
-  > Classification of periodic variables with cyclic-permutation invariant neural networks\
+  > Classification of periodic variables with novel cyclic-permutation invariant neural networks\
   > Keming Zhang & Joshua Bloom\
   > currently under review
 
@@ -18,7 +18,8 @@ Neural network implementations can be found under ./model/
 
 We provide two options for reproducing our results. To test on our provided trained models, decompress
 **trained_models.tar** into the ./results first. Alternatively, you may opt to train these models from stretch
-simply by removing the --test option in the **run_variablestar.sh** commands.
+simply by removing the --test option in the **run_variablestar.sh** commands. If you do so, we suggest that a new conda
+environment be created from environment.yml to replicate the identical software environment. 
 
 You may use the --ngpu and the --njob options to facilitate parallel training/testing
 with multiple gpus or processes. If GPU device is not available for your device, you can still specify --njob
