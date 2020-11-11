@@ -1,10 +1,10 @@
-## Cyclic-Permutation Invariant Neural Networks
+# Cyclic-Permutation Invariant Neural Networks
 
 Code associated with the paper:
-  > Classification of Periodic Variable Stars with Novel Cyclic-Permutation Invariant Neural Networks\
+  > **Classification of Periodic Variable Stars with Novel Cyclic-Permutation Invariant Neural Networks**\
   > Keming Zhang & Joshua Bloom\
   > Submitted to MNRAS\
-  > [arXiv:2011.01243](https://arxiv.org/abs/2011.01243)
+  > [arXiv:2011.01243](https://arxiv.org/abs/2011.01243)\
   > Accepted to ICLR 2020: FSAI (spotlight talk)\
   > Accepted to NeurIPS 2020: ML4PS
 
@@ -13,7 +13,7 @@ It also contains code to reproduce our main results.
 
 Neural network implementations can be found under ./model/
 
-### Reproducing our results
+## Reproducing our results
 
 **Description of files**:\
 **train.py**: train neural networks on variable star light curve datasets\
@@ -37,7 +37,7 @@ script in ./data/download.sh. These datasets have been constructed from publicly
 If you use this dataset, please cite the original papers, the citation of which can be found in 
 https://zenodo.org/record/3903015
 
-### Adapting to your own data
+## Adapting to your own data
 
 Code for iTCN and iResNet can be found under ``model``. To implement cyclic-permutation invariance in your custom CNN
 archetecture written in pytorch, add the ``wrap`` module under ``model/padding.py`` before any nn.Conv1D module and 
