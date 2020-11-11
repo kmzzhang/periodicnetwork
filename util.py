@@ -3,19 +3,8 @@ import os
 import shutil
 from torch.utils.data import Dataset
 
-class dataset3(Dataset):
-    def __init__(self, x, y, error):
-        self.x = x
-        self.y = y
-        self.error = error
 
-    def __len__(self):
-        return self.x.shape[0]
-
-    def __getitem__(self, i):
-        return self.x[i], self.y[i], self.error[i]
-
-
+# t --> dt. account for periodicity
 def times_to_lags(x, p=None):
     lags = x[:, 1:] - x[:, :-1]
     if p is not None:
@@ -23,117 +12,34 @@ def times_to_lags(x, p=None):
     return lags
 
 
-def preprocess(X_raw):
-    print(X_raw.shape)
-    N, L, F = X_raw.shape
-    X = np.zeros((N, L-1, F))
-    X[:, :, 0] = (times_to_lags(X_raw[:, :, 0]) / X_raw[:, :, 0].max(axis=1)[:,None]) + 0.001
-    X[:, :, 1] = times_to_lags(X_raw[:, :, 1])
-    means = np.atleast_2d(np.nanmean(X_raw[:, :, 1], axis=1)).T
-    scales = np.atleast_2d(np.nanstd(X_raw[:, :, 1], axis=1)).T
-    X[:, :, 1] /= scales
-    X[:, :, 2] = X[:, :, 1] / X[:, :, 0]
-    return X, means, scales
-
-
-class PreProcessor():
+class PreProcessor:
     def __init__(self):
         pass
 
     @staticmethod
-    def dtdfg(X_raw):
-        N, L, F = X_raw.shape
-        X = np.zeros((N, L - 1, 3))
-        X[:, :, 0] = (times_to_lags(X_raw[:, :, 0]) / X_raw[:, :, 0].max(axis=1)[:, None]) + 0.001
-        X[:, :, 1] = times_to_lags(X_raw[:, :, 1])
-        means = np.atleast_2d(np.nanmean(X_raw[:, :, 1], axis=1)).T
-        scales = np.atleast_2d(np.nanstd(X_raw[:, :, 1], axis=1)).T
-        X[:, :, 1] /= scales
-        X[:, :, 2] = X[:, :, 1] / X[:, :, 0]
-        return X, means, scales
+    def dtf(X_raw, periods):
+        """
+        Preprocess data
 
-    @staticmethod
-    def dtfg(X_raw):
-        N, L, F = X_raw.shape
-        X = np.zeros((N, L - 1, 3))
-        X[:, :, 0] = (times_to_lags(X_raw[:, :, 0]) / X_raw[:, :, 0].max(axis=1)[:, None]) + 0.001
-        X[:, :, 1] = X_raw[:, :, 1][:, :-1]
-        df = times_to_lags(X_raw[:, :, 1])
-        means = np.atleast_2d(np.nanmean(X_raw[:, :, 1], axis=1)).T
-        scales = np.atleast_2d(np.nanstd(X_raw[:, :, 1], axis=1)).T
-        X[:, :, 1] -= means
-        X[:, :, 1] /= scales
-        X[:, :, 2] = df / X[:, :, 0]
-        return X, means, scales
+        Parameters
+        ----------
+        X_raw: np.ndarray of shape (N, L, 2), where F=0 is time, and F=1 is flux.
+                Turn time into time-intervals and normalize flux.
+        periods: np.ndarray of shape (N)
 
-    @staticmethod
-    def dtdf(X_raw):
-        N, L, F = X_raw.shape
-        X = np.zeros((N, L - 1, 2))
-        X[:, :, 0] = (times_to_lags(X_raw[:, :, 0]) / X_raw[:, :, 0].max(axis=1)[:, None]) + 0.001
-        X[:, :, 1] = times_to_lags(X_raw[:, :, 1])
-        means = np.atleast_2d(np.nanmean(X_raw[:, :, 1], axis=1)).T
-        scales = np.atleast_2d(np.nanstd(X_raw[:, :, 1], axis=1)).T
-        X[:, :, 1] /= scales
-        return X, means, scales
+        Returns
+        -------
+        X: np.ndarray of shape (N, L, 2)
+        """
 
-    @staticmethod
-    def dtf(X_raw, p):
         N, L, F = X_raw.shape
         X = np.zeros((N, L, 2))
-        X[:, :, 0] = times_to_lags(X_raw[:, :, 0], p) / p[:, None]
+        X[:, :, 0] = times_to_lags(X_raw[:, :, 0], periods) / periods[:, None]
         X[:, :, 1] = X_raw[:, :, 1]
         means = np.atleast_2d(np.nanmean(X_raw[:, :, 1], axis=1)).T
         scales = np.atleast_2d(np.nanstd(X_raw[:, :, 1], axis=1)).T
         X[:, :, 1] -= means
         X[:, :, 1] /= scales
-        return X, means, scales
-
-    @staticmethod
-    def f(X_raw):
-        print(X_raw.shape)
-        N, L, F = X_raw.shape
-        X = np.zeros((N, L, 1))
-        X[:, :, 0] = X_raw[:, :, 1]
-        means = np.atleast_2d(np.nanmean(X_raw[:, :, 1], axis=1)).T
-        scales = np.atleast_2d(np.nanstd(X_raw[:, :, 1], axis=1)).T
-        X[:, :, 0] -= means
-        X[:, :, 0] /= scales
-        return X, means, scales
-
-    @staticmethod
-    def df(X_raw):
-        print(X_raw.shape)
-        N, L, F = X_raw.shape
-        X = np.zeros((N, L - 1, 1))
-        X[:, :, 0] = times_to_lags(X_raw[:, :, 1])
-        means = np.atleast_2d(np.nanmean(X_raw[:, :, 1], axis=1)).T
-        scales = np.atleast_2d(np.nanstd(X_raw[:, :, 1], axis=1)).T
-        X[:, :, 0] /= scales
-        return X, means, scales
-
-    @staticmethod
-    def dfg(X_raw):
-        N, L, F = X_raw.shape
-        X = np.zeros((N, L - 1, 2))
-        dt = (times_to_lags(X_raw[:, :, 0]) / X_raw[:, :, 0].max(axis=1)[:, None]) + 0.001
-        X[:, :, 0] = times_to_lags(X_raw[:, :, 1])
-        means = np.atleast_2d(np.nanmean(X_raw[:, :, 1], axis=1)).T
-        scales = np.atleast_2d(np.nanstd(X_raw[:, :, 1], axis=1)).T
-        X[:, :, 0] /= scales
-        X[:, :, 1] = X[:, :, 0] / dt
-        return X, means, scales
-
-    @staticmethod
-    def g(X_raw):
-        N, L, F = X_raw.shape
-        X = np.zeros((N, L - 1, 1))
-        dt = (times_to_lags(X_raw[:, :, 0]) / X_raw[:, :, 0].max(axis=1)[:, None]) + 0.001
-        df = times_to_lags(X_raw[:, :, 1])
-        means = np.atleast_2d(np.nanmean(X_raw[:, :, 1], axis=1)).T
-        scales = np.atleast_2d(np.nanstd(X_raw[:, :, 1], axis=1)).T
-        df /= scales
-        X[:, :, 0] = df / dt
         return X, means, scales
 
 

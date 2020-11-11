@@ -1,3 +1,7 @@
+# Author: Keming Zhang
+# Date: Nov 2020
+# arXiv: 2011.01243
+
 import numpy as np
 import torch
 from torch import from_numpy
@@ -16,7 +20,7 @@ else:
 
 
 def times_to_lags(x):
-    lags = x[:,1:] - x[:,:-1]
+    lags = x[:, 1:] - x[:, :-1]
     return lags
 
 
@@ -32,6 +36,7 @@ def preprocess(X_raw):
     X[:, 1, :] -= means[:, None]
     X[:, 1, :] /= scales[:, None]
     return X, means, scales
+
 
 # allow random cyclic permutation on the fly
 # as data augmentation for the non-invariant networks
@@ -92,8 +97,8 @@ def train(model, optimizer, train_loader, val_loader, test_loader, n_epoch, eval
                 indexes = np.sort(np.random.choice(range(x.shape[2]), L, replace=False))
                 x = x[:, :, indexes]
                 x, means, scales = preprocess(x)
-                x -= mean_x[None, :,None]
-                x /= std_x[None, :,None]
+                x -= mean_x[None, :, None]
+                x /= std_x[None, :, None]
                 aux[:, 0] = (means - aux_mean[0]) / aux_std[0]
                 aux[:, 1] = (scales - aux_mean[1]) / aux_std[1]
             if perm:
@@ -114,7 +119,9 @@ def train(model, optimizer, train_loader, val_loader, test_loader, n_epoch, eval
         ground_truths = np.array(ground_truths)
         accuracy = (predictions == ground_truths).mean()
         train_accuracy.append(accuracy)
-        val_loss = []; predictions=[]; ground_truths=[]
+        val_loss = []
+        predictions = []
+        ground_truths = []
         model.eval()
         np.random.seed(0)
         with torch.no_grad():
@@ -160,7 +167,7 @@ def train(model, optimizer, train_loader, val_loader, test_loader, n_epoch, eval
             wandb.log({"Train Loss": train_loss,
                        "Val Loss": val_loss,
                        "Train Acc": train_accuracy[-1] * 100,
-                        "Val Acc": accuracy * 100})
+                       "Val Acc": accuracy * 100})
         if print_every != -1 and epoch % print_every == 0:
             print('epoch:%d: train_loss = %.4f, val_loss = %.4f, accuracy = %.2f' % (epoch, train_loss,
                                                                                      val_loss, accuracy * 100))

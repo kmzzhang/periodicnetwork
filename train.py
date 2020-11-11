@@ -1,3 +1,7 @@
+# Author: Keming Zhang
+# Date: Nov 2020
+# arXiv: 2011.01243
+
 import os
 import sys
 import joblib
@@ -139,9 +143,8 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from model.resnet import Classifier as resnet
+from model.iresnet import Classifier as iresnet
 from model.itcn import Classifier as itcn
-from model.itin import Classifier as itin
 from model.rnn import Classifier as rnn
 from data import MyDataset as MyDataset
 
@@ -212,36 +215,54 @@ else:
 
 
 def get_network(n_classes):
-    if args.network == 'itcn':
-        clf = itcn(num_inputs=n_inputs, num_channels=[args.hidden] * args.depth, num_class=n_classes, hidden=32,
-                   dropout=args.dropout, kernel_size=args.kernel, dropout_classifier=0, aux=3,
-                   padding='cyclic').type(dtype)
-    elif args.network == 'tcn':
-        clf = itcn(num_inputs=n_inputs, num_channels=[args.hidden] * args.depth, num_class=n_classes, hidden=32,
-                   dropout=args.dropout, kernel_size=args.kernel, dropout_classifier=0, aux=3,
-                   padding='zero').type(dtype)
-    elif args.network == 'itin':
-        clf = itin(num_inputs=n_inputs, kernel_sizes=[args.kernel,args.kernel+2,args.kernel+4],
-                   num_channels=[args.hidden] * args.depth, num_class=n_classes, hidden=32, dropout=args.dropout,
-                   dropout_classifier=0, aux=3, padding='cyclic').type(dtype)
-    elif args.network == 'tin':
-        clf = itin(num_inputs=n_inputs, kernel_sizes=[args.kernel,args.kernel+2,args.kernel+4],
-                   num_channels=[args.hidden] * args.depth, num_class=n_classes, hidden=32,
-                   dropout=args.dropout, dropout_classifier=0, aux=3, padding='zero').type(dtype)
-    elif args.network == 'iresnet':
-        clf = resnet(n_inputs, n_classes, depth=args.depth, nlayer=args.n_layer, kernel_size=args.kernel,
-                     hidden_conv=args.hidden, max_hidden=args.max_hidden, padding='cyclic',min_length=args.min_maxpool,
-                     aux=3, dropout_classifier=args.dropout_classifier, hidden=args.hidden_classifier).type(dtype)
-    elif args.network == 'resnet':
-        clf = resnet(n_inputs, n_classes, depth=args.depth, nlayer=args.n_layer, kernel_size=args.kernel,
-                     hidden_conv=args.hidden, max_hidden=args.max_hidden, padding='zero',min_length=args.min_maxpool,
-                     aux=3, dropout_classifier=0, hidden=32).type(dtype)
-    elif args.network == 'gru':
-        clf = rnn(num_inputs=n_inputs, hidden_rnn=args.hidden, num_layers=args.depth, num_class=n_classes, hidden=32,
-                  rnn='GRU', dropout=args.dropout, aux=3).type(dtype)
-    elif args.network == 'lstm':
-        clf = rnn(num_inputs=n_inputs, hidden_rnn=args.hidden, num_layers=args.depth, num_class=n_classes, hidden=32,
-                  rnn='LSTM', dropout=args.dropout, aux=3).type(dtype)
+
+    if args.network in ['itcn', 'iresnet']:
+        padding = 'cyclic'
+    else:
+        padding = 'zero'
+
+    if args.network in ['itcn', 'tcn']:
+        clf = itcn(
+            num_inputs=n_inputs,
+            num_class=n_classes,
+            depth=args.depth,
+            hidden_conv=args.hidden,
+            hidden_classifier=args.hidden_classifier,
+            dropout=args.dropout,
+            kernel_size=args.kernel,
+            dropout_classifier=args.dropout_classifier,
+            aux=3,
+            padding=padding
+        ).type(dtype)
+
+    elif args.network in ['iresnet', 'resnet']:
+        clf = iresnet(
+            n_inputs,
+            n_classes,
+            depth=args.depth,
+            nlayer=args.n_layer,
+            kernel_size=args.kernel,
+            hidden_conv=args.hidden,
+            max_hidden=args.max_hidden,
+            padding=padding,
+            min_length=args.min_maxpool,
+            aux=3,
+            dropout_classifier=args.dropout_classifier,
+            hidden=args.hidden_classifier
+        ).type(dtype)
+
+    elif args.network in ['gru', 'lstm']:
+        clf = rnn(
+            num_inputs=n_inputs,
+            hidden_rnn=args.hidden,
+            num_layers=args.depth,
+            num_class=n_classes,
+            hidden=args.hidden_classifier,
+            rnn=args.network.upper(),
+            dropout=args.dropout,
+            aux=3
+        ).type(dtype)
+
     return clf
 
 
@@ -353,9 +374,6 @@ def train_helper(param):
     with torch.no_grad():
         for j, length in enumerate(lengths):
             split = [chunk for i in test_index for chunk in data[i].split(length, length)]
-            # num_chunks = np.array([len(data[i].split(length, length)) for i in test_index])
-            # num_chunks = num_chunks[num_chunks != 0]
-            # assert np.sum(num_chunks) == len(split)
             for lc in split:
                 lc.period_fold()
 
@@ -392,15 +410,6 @@ def train_helper(param):
 
             predictions = np.array(predictions)
             ground_truths = np.array(ground_truths)
-            # pred_perobj = [np.argmax(np.log(probs[sum(num_chunks[:i]):sum(num_chunks[:i + 1])]).sum(axis=0))
-            #                for i in range(len(num_chunks))]
-            # gt_perobj = [ground_truths[sum(num_chunks[:i])] for i in range(len(num_chunks))]
-            #
-
-            # if len(lengths) == 1:
-            #     np.save('{}_predictions.npy'.format(name), np.c_[predictions, ground_truths])
-            #     np.save('{}_predictions_perobj.npy'.format(name), np.c_[pred_perobj, gt_perobj])
-            #     np.save('{}_labels.npy'.format(name), use_label)
 
             accuracy_length[j] = (predictions == ground_truths).mean()
             accuracy_class_length[j] = np.array(

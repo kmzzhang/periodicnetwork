@@ -1,11 +1,15 @@
+# Author: Keming Zhang
+# Date: Nov 2020
+# arXiv: 2011.01243
+
 import torch
 import torch.nn as nn
 from torch.nn.utils import weight_norm
-from model.padding import wrap
+from model.padding import SymmetryPadding
 
 
 class Classifier(nn.Module):
-    def __init__(self, num_inputs, num_channels, num_class, hidden, dropout=0, kernel_size=2,
+    def __init__(self, num_inputs, num_class, depth=6, hidden_conv=24, hidden_classifier=32, dropout=0, kernel_size=5,
                  dropout_classifier=0, aux=0, padding='cyclic'):
         """
         Cyclic-permutation invariant Temporal Convolutional Network Classifier
@@ -14,12 +18,13 @@ class Classifier(nn.Module):
         ----------
         num_inputs: int
             dimension of input seqeunce
-        num_channels: list
-            list of hidden dimensions for each layer.
-            len must be equal to hidden
         num_class: int
             number of classes
-        hidden: int
+        depth: int
+            TCN depth
+        hidden_conv: int
+            hidden dimension for the TCN
+        hidden_classifier: int
             hidden dimension of the final two layer MLP classifier
         dropout: float
             dropout rate
@@ -34,22 +39,69 @@ class Classifier(nn.Module):
             "zero": zero padding for ordinary Cartesian network
         """
         super(type(self), self).__init__()
-        self.aux = aux
-        self.TCN = CyclicTemporalConvNet(num_inputs, num_channels, kernel_size, dropout, padding=padding)
-        self.linear1 = nn.Conv1d(num_channels[-1] + aux, hidden, 1)
-        self.linear2 = nn.Conv1d(hidden, num_class, 1)
-        self.dropout = nn.Dropout(dropout_classifier)
+        num_channels = [hidden_conv] * depth
+
+        # TCN featurizer
+        self.TCN = CyclicTemporalConvNet(
+            num_inputs,
+            num_channels,
+            kernel_size,
+            dropout,
+            padding=padding
+        )
+
+        # Classifier
         if aux > 0:
-            self.linear = nn.Sequential(self.linear1, self.dropout, nn.ReLU(), self.linear2)
+            self.linear1 = nn.Conv1d(
+                num_channels[-1] + aux,
+                hidden_classifier,
+                kernel_size=1
+            )
+            self.linear2 = nn.Conv1d(
+                hidden_classifier,
+                num_class,
+                kernel_size=1
+            )
+            self.dropout = nn.Dropout(dropout_classifier)
+            self.linear = nn.Sequential(
+                self.linear1,
+                self.dropout,
+                nn.ReLU(),
+                self.linear2
+            )
         else:
-            self.linear = nn.Conv1d(num_channels[-1], num_class, 1)
+            self.linear = nn.Conv1d(
+                num_channels[-1],
+                num_class,
+                kernel_size=1
+            )
+
         self.padding = padding
+        self.aux = aux
 
     def forward(self, x, aux=None):
+        """
+
+        Parameters
+        ----------
+        x: input 1D sequence of shape (N, D, L)
+        aux: auxillary input of shape (N, F) where F is number of auxillary features
+
+        Returns
+        -------
+        logits of shape (N, C) where C is class
+        """
+
         feature = self.TCN(x)
-        self.cache = feature
+
         if self.aux > 0:
-            feature = torch.cat((feature, aux[:, :, None].expand(-1, -1, feature.shape[2])), dim=1)
+            feature = torch.cat(
+                (
+                    feature,
+                    aux[:, :, None].expand(-1, -1, feature.shape[2])
+                ),
+                dim=1
+            )
         logprob_ = self.linear(feature)
         if self.padding == 'cyclic':
             logprob = logprob_.mean(dim=2)
@@ -64,7 +116,7 @@ class TemporalBlock(nn.Module):
         layers = []
         for i in range(2):
             prev = n_inputs if i == 0 else n_outputs
-            layers += [wrap(padding, mode=mode)]
+            layers += [SymmetryPadding(padding, mode=mode)]
             layers += [weight_norm(nn.Conv1d(prev, n_outputs, kernel_size=kernel_size, dilation=dilation))]
             layers[-1].weight.data.normal_(0, 0.01)
             layers += [nn.ReLU()]
