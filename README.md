@@ -58,4 +58,4 @@ While the training code has been optimized for reproducebility rather than flexi
 The data structure has orginally been adapted from 
 [Naul et al. 2018](https://github.com/bnaul/IrregularTimeSeriesAutoencoderPaper). To train a model, create a 
 LightCurve() object for each of your light curves, and save the list of LightCurve() objects to a pickle file. From
-here, follow instructions for reproduction.
+there, follow instructions for reproduction.

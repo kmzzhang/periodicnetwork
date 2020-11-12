@@ -74,7 +74,7 @@ def train(model, optimizer, train_loader, val_loader, test_loader, n_epoch, eval
         lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, 0.85)
     if retrain:
         val_accuracy = list(np.load(filename + '-CONVERGENCE-val.npy'))
-        train_accuracy = np.load(filename + '-CONVERGENCE-train.npy')
+        train_accuracy = list(np.load(filename + '-CONVERGENCE-train.npy'))
         val_losses = list(np.load(filename + '-CONVERGENCE-val-loss.npy'))
         train_losses = list(np.load(filename + '-CONVERGENCE-train-loss.npy'))
     else:
