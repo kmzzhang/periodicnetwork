@@ -2,6 +2,7 @@ import numpy as np
 import os
 import shutil
 from torch.utils.data import Dataset
+import copy
 
 
 # t --> dt. account for periodicity
@@ -10,6 +11,19 @@ def times_to_lags(x, p=None):
     if p is not None:
         lags = np.c_[lags, x[:, 0] - x[:, -1] + p]
     return lags
+
+
+def preprocess(X_raw, periods, use_error=False):
+    N, L, F = X_raw.shape
+    out_dim = 3 if use_error else 2
+    X = np.zeros((N, L, out_dim))
+    X[:, :, 0] = times_to_lags(X_raw[:, :, 0], periods) / periods[:, None]
+    X[:, :, 1:out_dim] = X_raw[:, :, 1:out_dim]
+    means = np.atleast_2d(np.nanmean(X_raw[:, :, 1], axis=1)).T
+    scales = np.atleast_2d(np.nanstd(X_raw[:, :, 1], axis=1)).T
+    X[:, :, 1] -= means
+    X[:, :, 1] /= scales
+    return X, means, scales
 
 
 class PreProcessor:

@@ -1,23 +1,60 @@
 import numpy as np
 
 
-class LightCurve():
-    def __init__(self, times, measurements, errors, survey=None, name=None,
+class LightCurve:
+    def __init__(self, times, measurements, errors=None, survey=None, name=None,
                  best_period=None, best_score=None, label=None, p=None,
-                 p_signif=None, p_class=None, ss_resid=None):
+                 p_signif=None, p_class=None, ss_resid=None, metadata=None):
+        """
+
+        Parameters
+        ----------
+        times: ndarray
+            1D array of shape (L,)
+        measurements: ndarray
+            1D array of shape (L,)
+        errors: ndarray
+            (optional) 1D array of shape (L,)
+        survey: string
+            survey name
+        name: string
+            object name
+        best_period: float
+            obsolete. load period into p instead
+        best_score: float
+            obsolete
+        label: string or int
+            class of light-curve. can be name or number.
+        p: float
+            period
+        p_signif: float
+            obsolete
+        p_class: float
+            obsolete
+        ss_resid: float
+            obsolete
+        metadata: ndarray
+            1D array of features from external catelogs to be used as auxiliary network inputs
+        """
         self.times = times
         self.measurements = measurements
-        self.errors = errors
+        self.errors = errors if errors is not None else np.zeros_like(times)
+        self.label = label
+        self.metadata = metadata
         self.survey = survey
         self.name = name
+
+        # period
+        self.p = p
+
+        # optional
         self.best_period = best_period
         self.best_score = best_score
-        self.label = label
-        self.p = p
+        self.class_prob = None
+        self.ss_resid = ss_resid
         self.p_signif = p_signif
         self.p_class = p_class
-        self.ss_resid = ss_resid
-        self.class_prob = None
+
 
     def __repr__(self):
         return "LightCurve(" + ', '.join("{}={}".format(k, v)
