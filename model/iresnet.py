@@ -94,7 +94,7 @@ class Classifier(nn.Module):
             self.dropout = nn.Dropout(dropout_classifier)
             self.linear = nn.Sequential(self.linear1, self.dropout, nn.ReLU(), self.linear2)
         else:
-            self.linear = nn.Conv1d(h, num_class, 1)
+            self.linear = nn.Conv1d(dim_out, num_class, 1)
         self.aux = aux
         self.feature = padding
 
